@@ -1,19 +1,50 @@
 import streamlit as st
-import google.generativeai as genai
+from groq import Groq
+import os
+from dotenv import load_dotenv
 
 # --- AYARLAR ---
-# API Key'i güvenli şekilde yükle (Streamlit Cloud için secrets.toml kullan)
-try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-except:
-    # Lokal test için fallback
-    API_KEY = "AIzaSyBB1Y3jtp4SlALJ2iIX5ExH7tFaMskGAjg" 
+# .env dosyasından API anahtarını yükle
+load_dotenv()
 
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+# API Key'i güvenli şekilde yükle
+try:
+    API_KEY = st.secrets["GROQ_API_KEY"]
+except:
+    # Lokal test için .env dosyasından
+    API_KEY = os.getenv("GROQ_API_KEY")
+    
+# Eğer hala None ise hata ver
+if not API_KEY:
+    st.error("⚠️ GROQ_API_KEY bulunamadı! Lütfen .env dosyasını ana klasörde oluşturun ve API key'inizi ekleyin.")
+    st.code("GROQ_API_KEY=gsk_YourKeyHere", language="bash")
+    st.stop()
+
+# Groq client başlat
+client = Groq(api_key=API_KEY)
 
 # --- SAYFA TASARIMI ---
 st.set_page_config(page_title="TÜBİTAK Proje Sihirbazı", layout="wide", page_icon="🔬")
+
+# --- TRAFİK YÖNETİMİ VE KULLANICI BİLGİLENDİRME ---
+import time
+from datetime import datetime, timedelta
+
+# Session state ile son kullanım zamanını takip et
+if 'last_generation_time' not in st.session_state:
+    st.session_state.last_generation_time = None
+if 'generation_count' not in st.session_state:
+    st.session_state.generation_count = 0
+
+# Kullanıcı bilgilendirmesi
+st.sidebar.markdown("---")
+st.sidebar.info("ℹ️ **Önemli Bilgi**\n\n"
+                "Bu sistem ücretsiz Groq API (Llama 3.3 70B) kullanmaktadır. "
+                "Hızlı ve güvenilir çalışır!\n\n"
+                f"**Bugün oluşturulan rapor:** {st.session_state.generation_count}")
+st.sidebar.success("✅ **Groq API Aktif**\n\n"
+                   "Llama 3.3 70B modeli ile profesyonel raporlar oluşturuyoruz.")
+
 
 st.title("🔬 TÜBİTAK 2204 Proje Yazım İstasyonu")
 st.info("Bu sistem, seçtiğiniz yarışma türüne (Lise/Ortaokul) özel olarak TÜBİTAK formatına uygun KAPSAMLI proje raporu üretir.")
@@ -47,6 +78,17 @@ with col2:
     st.header("📄 TÜBİTAK Formatında Proje Raporu")
     
     if generate_btn and konu:
+        # Rate limiting kontrolü
+        if st.session_state.last_generation_time:
+            time_since_last = datetime.now() - st.session_state.last_generation_time
+            cooldown_seconds = 30  # Her rapor arasında 30 saniye
+            
+            if time_since_last < timedelta(seconds=cooldown_seconds):
+                remaining = cooldown_seconds - time_since_last.seconds
+                st.warning(f"⏰ Lütfen {remaining} saniye bekleyin. "
+                          f"Yüksek trafik nedeniyle kullanıcılar arası bekleme süresi uygulanıyor.")
+                st.stop()
+        
         with st.spinner(f'{seviye} standartlarında tam kapsamlı rapor hazırlanıyor...'):
             try:
                 # --- ORTAOKUL (2204-B) İÇİN PROMPT ---
@@ -169,9 +211,27 @@ with col2:
                     NOT: Her bölümü bilimsel terminoloji ve akademik yazım kurallarına uygun yaz!
                     """
                 
-                response = model.generate_content(prompt)
-                st.markdown(response.text)
-                st.success("✅ Kapsamlı proje raporu başarıyla oluşturuldu! Word/PDF'e aktarabilirsiniz.")
+                
+                # Groq API ile rapor oluştur
+                chat_completion = client.chat.completions.create(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        }
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.7,
+                    max_tokens=8000,
+                )
+                
+                st.markdown(chat_completion.choices[0].message.content)
+                
+                # Başarılı üretim sonrası session state güncelle
+                st.session_state.last_generation_time = datetime.now()
+                st.session_state.generation_count += 1
+                
+                st.success("✅ Kapsamlı proje raporu başarıyla oluşturuldu!")
                 st.info("💡 İpucu: Bu raporu temel alıp kendi araştırma verilerinizle zenginleştirin.")
                 
                 # --- DANIŞMAN ÖĞRETMEN İÇİN SİSTEME YÜKLEME REHBERİ ---
