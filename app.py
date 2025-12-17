@@ -8,20 +8,37 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # API Key'i güvenli şekilde yükle
+API_KEY = None
 try:
-    API_KEY = st.secrets["GROQ_API_KEY"]
+    # Önce Streamlit secrets'ı dene
+    API_KEY = st.secrets.get("GROQ_API_KEY", None)
 except:
+    pass
+
+if not API_KEY:
     # Lokal test için .env dosyasından
     API_KEY = os.getenv("GROQ_API_KEY")
+
+# Normalize the API key (strip whitespace if it exists)
+if API_KEY:
+    API_KEY = API_KEY.strip()
     
-# Eğer hala None ise hata ver
-if not API_KEY:
-    st.error("⚠️ GROQ_API_KEY bulunamadı! Lütfen .env dosyasını ana klasörde oluşturun ve API key'inizi ekleyin.")
-    st.code("GROQ_API_KEY=gsk_YourKeyHere", language="bash")
+# Validate API key exists and is not empty
+if not API_KEY or API_KEY == "":
+    st.error("⚠️ GROQ_API_KEY bulunamadı veya boş!")
+    st.info("**Streamlit Cloud'da:** Settings → Secrets → `GROQ_API_KEY = \"your_key\"`")
+    st.info("**Lokal:** `.env` dosyasında `GROQ_API_KEY=your_key`")
+    st.warning("🔑 API anahtarınızı https://console.groq.com/keys adresinden alabilirsiniz")
     st.stop()
 
 # Groq client başlat
-client = Groq(api_key=API_KEY)
+try:
+    client = Groq(api_key=API_KEY)
+except Exception as e:
+    st.error(f"❌ Groq client başlatılamadı: {e}")
+    st.error(f"🔍 API Key uzunluğu: {len(API_KEY) if API_KEY else 0} karakter")
+    st.info("API anahtarınızın geçerli olduğundan emin olun.")
+    st.stop()
 
 # --- SAYFA TASARIMI ---
 st.set_page_config(page_title="TÜBİTAK Proje Sihirbazı", layout="wide", page_icon="🔬")
